@@ -7,13 +7,14 @@ rtimer::RTimer::RTimer(const uint16_t lc_pins[6], const uint16_t keyboard_port, 
     kbd(keyboard_port),
     lcd(lc_pins),
     steps {  
-          { mRoot, "MAIN MENU", "Use UP/DOWN to choose Timer or Settings and SELECT to enter into it. ", mRoot, {pTimer, mSettings, mRoot, mRoot, mRoot}, NULL},
+          { mRoot, "MAIN MENU", "Use UP/DOWN to choose Timer or Settings and SELECT to enter into it. ", mRoot, {pTimer, mSettings, mRoot, mRoot, mRoot, mRoot}, NULL},
           { pTimer, "MM>TIMER", "Press SELECT to run/stop timer", mRoot, {}, &RTimer::timer_run},
-          { mSettings, "MM>SETTINGS", "Use UP/DOWN to choose settings and SELECT/RIGHT to configure it. Press LEFT to get back to main menu. ", mRoot, {pTimerSet, pDelaySet, pRepeatSet, pBeepSet, pReSet}, NULL},
+          { mSettings, "MM>SETTINGS", "Use UP/DOWN to choose settings and SELECT/RIGHT to configure it. Press LEFT to get back to main menu. ", mRoot, {pTimerSet, pDelaySet, pRepeatSet, pBeepSet, pBklitSet, pReSet}, NULL},
           { pTimerSet, "SET>TMR", "", mSettings, {}, &RTimer::set_timer_run},
           { pDelaySet, "SET>DELAY", "", mSettings, {}, &RTimer::set_delay_run},
           { pRepeatSet, "SET>RPT", "", mSettings, {}, &RTimer::set_repeat_run},
           { pBeepSet, "SET>BEEPS", "", mSettings, {}, &RTimer::set_beep_run},
+          { pBklitSet, "SET>BKLIT", "", mSettings, {}, &RTimer::set_bklit_run},
           { pReSet, "SET>RESET", "", mSettings, {}, &RTimer::set_reset_run} },
     beeper(beep_port)
 {
@@ -23,8 +24,8 @@ rtimer::RTimer::RTimer(const uint16_t lc_pins[6], const uint16_t keyboard_port, 
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::set_defaults() {
-  
+void rtimer::RTimer::set_defaults() 
+{  
     tstate = tsNotStarted;
     last_millis = 0;
   
@@ -49,12 +50,14 @@ void rtimer::RTimer::set_defaults() {
   
     tstart_cntdwn = true;
     tend_cntdwn = true;
+
+    lcd_bklit = DISPLAY_BKLIT;
 }
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::load() {
-
+void rtimer::RTimer::load() 
+{
     if ( EEPROM.read(0) == 73 ) { 
       tmode = TimerMode(EEPROM.read(1));
       tmin = EEPROM.read(2);
@@ -65,7 +68,10 @@ void rtimer::RTimer::load() {
       trmode = TimerRepeatMode(EEPROM.read(7));
       trlimit = EEPROM.read(8);
       tstart_cntdwn = bool(EEPROM.read(9));
-      tend_cntdwn = bool(EEPROM.read(10));  
+      tend_cntdwn = bool(EEPROM.read(10));
+      lcd_bklit = EEPROM.read(11);
+
+      lcd.changeBacklit(lcd_bklit);
     }
     else {
       EEPROM.update(0, 73);
@@ -76,8 +82,8 @@ void rtimer::RTimer::load() {
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::save() {
-  
+void rtimer::RTimer::save() 
+{
     EEPROM.update(1, uint8_t(tmode));
     EEPROM.update(2, tmin);
     EEPROM.update(3, tmax);
@@ -88,11 +94,13 @@ void rtimer::RTimer::save() {
     EEPROM.update(8, trlimit);
     EEPROM.update(9, uint8_t(tstart_cntdwn));
     EEPROM.update(10, uint8_t(tend_cntdwn));
+    EEPROM.update(11, lcd_bklit);
 }
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::reset() {
+void rtimer::RTimer::reset() 
+{
 
     set_defaults();
     save();
@@ -100,8 +108,11 @@ void rtimer::RTimer::reset() {
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::run() {
+void rtimer::RTimer::run()
+{
 
+    beeper.check_beeper();
+    
     keys::Key key = kbd.get_key();
   
     // get current step info
@@ -110,6 +121,7 @@ void rtimer::RTimer::run() {
         return;
   
     if (key.code == keys::kcLeft) {
+        tstate = tsNotStarted;
         curr_step = step->prev;
         return;
     }
@@ -158,7 +170,7 @@ void rtimer::RTimer::run() {
           else
               curr_menu_item--;
 
-          if (curr_menu_item < 0 || curr_menu_item > 4 || step->next[curr_menu_item] == mRoot)
+          if (curr_menu_item < 0 || curr_menu_item > 5 || step->next[curr_menu_item] == mRoot)
             curr_menu_item = 0;
         break;
     }
@@ -169,17 +181,28 @@ void rtimer::RTimer::run() {
 //------------------------------------------------------------------------------------------
 rtimer::RTimer::LC::LC(const uint16_t lc_pins[6]) :
   _lcd(lc_pins[0], lc_pins[1], lc_pins[2], lc_pins[3], lc_pins[4], lc_pins[5]),
-  display_tout(MIN_TOUT)
+  display_tout(MIN_TOUT),
+  bklit(DISPLAY_BKLIT)
 {
     // init LCD display
     _lcd.begin(16, 2);
+    
     // set backlit value
-    analogWrite(P_DISPLAY_BKLIT, DISPLAY_BKLIT);
+    changeBacklit(bklit);
 }
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::LC::showLine(String str, uint8_t line) {
+void rtimer::RTimer::LC::changeBacklit(uint8_t new_bl) 
+{
+  
+    bklit = new_bl;
+    analogWrite(P_DISPLAY_BKLIT, bklit);
+}
+
+//------------------------------------------------------------------------------------------
+void rtimer::RTimer::LC::showLine(String str, uint8_t line) 
+{
     if (line > 1)
         return;
   
@@ -217,7 +240,7 @@ rtimer::RTimer::Beeper::Beeper(uint8_t bport) :
         {1000, 300},   // btDelay
         {1200, 100},   // btStartCntdwn
         {800,  100},   // btEndCntdwn
-        {100,  500} } // btEnd  
+        {100,  500} }  // btEnd  
 {
   stop_beep_millis = 0;
   noTone(beeper_port);  
@@ -225,14 +248,16 @@ rtimer::RTimer::Beeper::Beeper(uint8_t bport) :
 //------------------------------------------------------------------------------------------
 
 
-void rtimer::RTimer::Beeper::beep(TBeepType btype) {
+void rtimer::RTimer::Beeper::beep(TBeepType btype)
+{
     tone(beeper_port, beeps[btype].freq, beeps[btype].dur);
     stop_beep_millis = millis() + beeps[btype].dur;
 }
 
 
 //------------------------------------------------------------------------------------------
-void rtimer::RTimer::Beeper::check_beeper() {
+void rtimer::RTimer::Beeper::check_beeper()
+{
     if (stop_beep_millis > 0 && stop_beep_millis < millis()) {
       noTone(beeper_port);
       stop_beep_millis = 0;
@@ -241,8 +266,8 @@ void rtimer::RTimer::Beeper::check_beeper() {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::timer_run(keys::Key k) {
-  
+bool rtimer::RTimer::timer_run(keys::Key k) 
+{
     String fStr("TIMER:"),
            sStr("");
     switch (tstate) {
@@ -398,8 +423,8 @@ bool rtimer::RTimer::timer_run(keys::Key k) {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::set_timer_run(keys::Key k) {
-
+bool rtimer::RTimer::set_timer_run(keys::Key k) 
+{
     String fStr("SET TMR: "),
            sStr("");
     if (tmode == tmFixed) {
@@ -484,8 +509,8 @@ bool rtimer::RTimer::set_timer_run(keys::Key k) {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::set_delay_run(keys::Key k) {
-
+bool rtimer::RTimer::set_delay_run(keys::Key k) 
+{
     String fStr("SET DELAY:"),
            sStr("");
     if (dmode == tmFixed) {
@@ -568,8 +593,8 @@ bool rtimer::RTimer::set_delay_run(keys::Key k) {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::set_repeat_run(keys::Key k) {
-
+bool rtimer::RTimer::set_repeat_run(keys::Key k) 
+{
     String fStr("SET RPT"),
            sStr("");
 
@@ -636,8 +661,8 @@ bool rtimer::RTimer::set_repeat_run(keys::Key k) {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::set_beep_run(keys::Key k) {
-
+bool rtimer::RTimer::set_beep_run(keys::Key k) 
+{
     String fStr("SET CNTDWN BEEP"),
            sStr("");
 
@@ -694,8 +719,8 @@ bool rtimer::RTimer::set_beep_run(keys::Key k) {
 
 
 //------------------------------------------------------------------------------------------
-bool rtimer::RTimer::set_reset_run(keys::Key k) {
-
+bool rtimer::RTimer::set_reset_run(keys::Key k) 
+{
     String fStr("RESET?"),
            sStr(reset_flag ? "YES" : "NO");
     lcd.showLine(fStr, 0);
@@ -716,8 +741,43 @@ bool rtimer::RTimer::set_reset_run(keys::Key k) {
         case keys::kcDown:
             reset_flag = !reset_flag;      
             break;
+
+        default:
+            break;
     }
     last_key_code = k.code;
+  
+    return true;
+}
+
+
+//------------------------------------------------------------------------------------------
+bool rtimer::RTimer::set_bklit_run(keys::Key k) 
+{
+    String fStr("SET BACKLIT"),
+           sStr(lcd_bklit);
+    lcd.showLine(fStr, 0);
+    lcd.showLine(sStr, 1);
+  
+    if (k.code == last_key_code)
+        return true;
+    int delta = 0;
+    switch (k.code) {
+        case keys::kcUp:
+            delta = 5;
+            break;
+            
+        case keys::kcDown:
+            delta = -5;      
+            break;
+    }
+    last_key_code = k.code;
+    if (delta != 0) {
+      lcd_bklit += delta;
+      lcd_bklit = normalize(lcd_bklit, 5, 250);
+      lcd.changeBacklit(lcd_bklit);
+      save();
+    }
   
     return true;
 }

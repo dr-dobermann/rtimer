@@ -13,20 +13,20 @@ namespace rtimer {
     const uint16_t lcp[6] {8, 9, 4, 5, 6, 7};
 
     const uint8_t
-        P_BEEPER = 11;
+        P_DISPLAY_BKLIT = 10,
+        DISPLAY_BKLIT = 90,
+   
+        P_BEEPER = 3;
     
     const uint16_t
         START_CNTDWN = 10,
         STEP_CNTDWN = 5,
-    
-        P_DISPLAY_BKLIT = 10,
-        DISPLAY_BKLIT = 90,
-    
+       
         MIN_TOUT = 450,
         
         TIMER_MIN_DEFAULT = 30,
         TIMER_MAX_DEFAULT = 180,
-        DELAY_MIN_DEFAULT = 10,
+        DELAY_MIN_DEFAULT = 1,
         DELAY_MAX_DEFAULT = 60;
 
     class RTimer {
@@ -41,13 +41,16 @@ namespace rtimer {
                 public:
                     LC(const uint16_t lc_pins[6]);
                     void showLine(String str, uint8_t line);
-
+                    void changeBacklit(uint8_t new_bl);
+                    uint8_t getBacklit() { return bklit; };
+                    
                 private:
                     LiquidCrystal _lcd;
                     uint64_t display_tout;
                     String lines[2];
                     uint64_t last_disp_time;
                     byte pos[2];
+                    uint8_t bklit;
             };
 
             class Beeper {
@@ -88,6 +91,7 @@ namespace rtimer {
                     pRepeatSet,
                     pBeepSet,
                     pReSet,
+                    pBklitSet,
                 } StepID;
 
             // callback function type to process menuItem call
@@ -100,7 +104,7 @@ namespace rtimer {
                     String name;
                     String descr;
                     StepID prev;
-                    StepID next[5];  
+                    StepID next[6];  
                     RunProc runner; // callback proc to proceess the step
                                     // if NULL, then it's just a menu item with
                                     // no defined processor
@@ -166,7 +170,7 @@ namespace rtimer {
             bool reset_flag;
 
             // States map of the timer
-            Step steps[8];
+            Step steps[9];
             // Timer steps' managing variables
             StepID curr_step;
             int curr_menu_item;
@@ -182,6 +186,9 @@ namespace rtimer {
             // beeps managing variables
             uint8_t start_cntdwn;
 
+            // backlit value
+            uint8_t lcd_bklit;
+
             // Timer step processing routines
             bool timer_run(keys::Key k);
             bool set_timer_run(keys::Key k);
@@ -189,6 +196,7 @@ namespace rtimer {
             bool set_repeat_run(keys::Key k);
             bool set_beep_run(keys::Key k);
             bool set_reset_run(keys::Key k);
+            bool set_bklit_run(keys::Key k);
             
             uint16_t normalize(uint16_t val, uint16_t minv, uint16_t maxv) {
                 if (val < minv)
@@ -215,7 +223,7 @@ namespace rtimer {
 
             Step *get_step(StepID id) {
                 Step *step = NULL;
-                for (uint16_t i = 0; i < 8; i++)
+                for (uint16_t i = 0; i < 9; i++)
                     if (steps[i].id == id) {
                         step = &(steps[i]);
                         break;
